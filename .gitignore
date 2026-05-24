@@ -1,29 +1,12 @@
+.DS_Store
 __pycache__/
 *.py[cod]
-*.egg-info/
 .pytest_cache/
-.mypy_cache/
 .ruff_cache/
-build/
-dist/
+.mypy_cache/
 .venv/
-.uv/
-data/kafka/
-data/postgres/
-test-data/
-platform/runtime-logs/
-platform/runtime-status/
-hyper-experiments-polymarket
-data/
-
-# Generated experiment/runtime output.
-platform/artifacts/
-platform/reports/*.json
-platform/reports/*.txt
-experiments/families/*/exp-*/artifacts/
-experiments/families/*/exp-*/**/reports/**/*.json
-experiments/families/*/exp-*/**/reports/**/*.txt
-
-# Local skill development checkouts.
-skill-dev/
+dist/
+build/
+*.egg-info/
+.coverage
 libs/

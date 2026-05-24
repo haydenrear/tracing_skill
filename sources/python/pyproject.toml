@@ -1,0 +1,26 @@
+[build-system]
+requires = ["hatchling>=1.24"]
+build-backend = "hatchling.build"
+
+[project]
+name = "tracing-skill-observability"
+version = "0.1.0"
+description = "Structured logging, OpenTelemetry tracing, and Prometheus metrics helpers for Python services."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+  "opentelemetry-api>=1.25.0",
+  "opentelemetry-sdk>=1.25.0",
+  "opentelemetry-exporter-otlp-proto-http>=1.25.0",
+  "prometheus-client>=0.20.0",
+]
+
+[project.optional-dependencies]
+fastapi = ["opentelemetry-instrumentation-fastapi>=0.46b0"]
+requests = ["opentelemetry-instrumentation-requests>=0.46b0"]
+
+[project.scripts]
+tracing-observability-install = "tracing_skill_observability.install:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/tracing_skill_observability"]
