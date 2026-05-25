@@ -42,7 +42,7 @@ The library also honors:
 - `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`
 - `DEPLOYMENT_ENVIRONMENT`
 
-## Create Spans
+## Create Spans With A Context Manager
 
 Use spans around meaningful operations: external calls, queue handling,
 database work, expensive local computation, and business workflow steps.
@@ -68,6 +68,39 @@ with span(
 
 Avoid secrets, raw payloads, large documents, and high-cardinality fields
 that are not needed for debugging.
+
+## Create Spans With A Decorator
+
+Use `@traced_span` when the whole function should run inside one span.
+This works for synchronous and asynchronous functions.
+
+```python
+from tracing_skill_observability import traced_span
+
+@traced_span("load-order", component="orders")
+def load_order(order_id: str):
+    ...
+```
+
+You can omit the span name to use the function's module-qualified name:
+
+```python
+from tracing_skill_observability import traced_span
+
+@traced_span
+def publish_order_event(order_id: str):
+    ...
+```
+
+Async functions are supported:
+
+```python
+from tracing_skill_observability import traced_span
+
+@traced_span("fetch-price")
+async def fetch_price(symbol: str):
+    ...
+```
 
 ## Logs And Spans
 

@@ -3,6 +3,9 @@
 Use this reference when Python services need a standardized Prometheus
 metrics endpoint.
 
+The package uses the official `prometheus_client` package and exposes
+its normal registry, metric, HTTP server, and ASGI integration patterns.
+
 ## Install
 
 ```bash
@@ -44,7 +47,9 @@ Equivalent TOML config:
 [observability]
 service_name = "orders-worker"
 service_version = "0.1.0"
+metrics_enabled = true
 metrics_port = 9464
+metrics_addr = "0.0.0.0"
 ```
 
 ## Standard HTTP Metrics
@@ -64,6 +69,43 @@ with http_request_duration.labels(method="GET", route=route, status=status).time
 
 Labels should be low-cardinality. Use route templates such as
 `/orders/{id}`, not raw request paths like `/orders/ord_123`.
+
+## Native Prometheus Client APIs
+
+Use `prometheus_client` directly for domain-specific metrics. The
+official client supports counters, gauges, summaries, histograms, infos,
+enums, labels, custom registries, and timing decorators/context
+managers.
+
+```python
+from prometheus_client import Counter, Histogram
+
+jobs_total = Counter(
+    "orders_jobs_total",
+    "Total order jobs processed.",
+    ["result"],
+)
+
+job_duration = Histogram(
+    "orders_job_duration_seconds",
+    "Order job duration in seconds.",
+)
+
+@job_duration.time()
+def process_job():
+    ...
+```
+
+If an application needs an isolated registry, pass it to the helpers:
+
+```python
+from prometheus_client import CollectorRegistry
+from tracing_skill_observability import metrics_app, start_metrics_server
+
+registry = CollectorRegistry()
+app.mount("/metrics", metrics_app(registry=registry))
+start_metrics_server(9464, registry=registry)
+```
 
 ## Library Guidance
 

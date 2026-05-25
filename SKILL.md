@@ -23,6 +23,7 @@ cluster operations are handled by the deploy skill, not this skill.
 - Importable Python package: `tracing_skill_observability`
 - Structured JSON stdout logging with trace/span correlation
 - OpenTelemetry span helpers and OTLP HTTP export
+- Span decorator for sync and async Python functions
 - Prometheus metrics helpers and an ASGI `/metrics` app
 - TOML config loading for application/library setup
 - Helper CLI: `tracing-observability-install`
@@ -44,11 +45,12 @@ Use these Python references:
 Minimal usage:
 
 ```python
-from tracing_skill_observability import configure_observability, get_logger, span
+from tracing_skill_observability import configure_observability, get_logger, traced_span
 
 configure_observability(service_name="orders-api", service_version="0.1.0")
 log = get_logger(__name__)
 
-with span("load-order", order_id="ord_123"):
+@traced_span("load-order", component="orders")
+def load_order(order_id: str):
     log.info("order.loaded", extra={"order_id": "ord_123"})
 ```

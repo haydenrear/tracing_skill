@@ -6,7 +6,7 @@ from .metrics import (
     metrics_app,
     start_metrics_server,
 )
-from .tracing import configure_tracing, get_tracer, span
+from .tracing import configure_tracing, get_tracer, span, traced_span
 
 
 def configure_observability(
@@ -16,6 +16,7 @@ def configure_observability(
     otlp_endpoint: str | None = None,
     log_level: str = "INFO",
     metrics_port: int | None = None,
+    metrics_addr: str = "0.0.0.0",
 ) -> None:
     configure_logging(service_name=service_name, log_level=log_level)
     configure_tracing(
@@ -24,7 +25,7 @@ def configure_observability(
         otlp_endpoint=otlp_endpoint,
     )
     if metrics_port is not None:
-        start_metrics_server(metrics_port)
+        start_metrics_server(metrics_port, addr=metrics_addr)
 
 
 __all__ = [
@@ -42,4 +43,5 @@ __all__ = [
     "metrics_app",
     "span",
     "start_metrics_server",
+    "traced_span",
 ]

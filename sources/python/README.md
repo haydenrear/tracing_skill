@@ -54,3 +54,17 @@ configure_observability_from_file("observability.toml")
 Structured log keys are `timestamp`, `severity`, `logger`, `message`,
 `service_name`, `trace_id`, `span_id`, any safe `extra` fields, and
 `exception` when exception info is present.
+
+Use `@traced_span` when a whole function should run inside a span:
+
+```python
+from tracing_skill_observability import traced_span
+
+@traced_span("load-order", component="orders")
+def load_order(order_id: str):
+    ...
+```
+
+Metrics use the official `prometheus_client` package. You can use native
+Prometheus client counters, histograms, registries, and timing
+decorators alongside this package's helpers.

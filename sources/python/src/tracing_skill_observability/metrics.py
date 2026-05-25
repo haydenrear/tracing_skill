@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from prometheus_client import Counter, Histogram, make_asgi_app, start_http_server
+from prometheus_client import CollectorRegistry, Counter, Histogram, REGISTRY, make_asgi_app, start_http_server
 
 http_requests_total = Counter(
     "http_requests_total",
@@ -15,9 +15,13 @@ http_request_duration = Histogram(
 )
 
 
-def metrics_app():
-    return make_asgi_app()
+def metrics_app(registry: CollectorRegistry = REGISTRY):
+    return make_asgi_app(registry=registry)
 
 
-def start_metrics_server(port: int = 9464, addr: str = "0.0.0.0") -> None:
-    start_http_server(port, addr=addr)
+def start_metrics_server(
+    port: int = 9464,
+    addr: str = "0.0.0.0",
+    registry: CollectorRegistry = REGISTRY,
+) -> None:
+    start_http_server(port, addr=addr, registry=registry)

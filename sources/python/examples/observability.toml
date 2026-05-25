@@ -3,6 +3,8 @@ service_name = "orders-api"
 service_version = "0.1.0"
 otlp_endpoint = "http://cdc-commit-diff-context-otel-collector.cdc.svc:4318"
 log_level = "INFO"
+metrics_enabled = true
 # metrics_port starts a standalone Prometheus HTTP exporter.
 # Prefer metrics_app() for ASGI apps that already expose /metrics.
 # metrics_port = 9464
+# metrics_addr = "0.0.0.0"
