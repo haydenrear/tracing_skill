@@ -73,6 +73,9 @@ that are not needed for debugging.
 
 Use `@traced_span` when the whole function should run inside one span.
 This works for synchronous and asynchronous functions.
+If the wrapped function raises, the decorator records the exception on
+the active span, marks the span status as `ERROR`, and re-raises the
+original exception.
 
 ```python
 from tracing_skill_observability import traced_span

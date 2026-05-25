@@ -11,6 +11,7 @@ from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExport
 from opentelemetry.sdk.resources import DEPLOYMENT_ENVIRONMENT, SERVICE_NAME, SERVICE_VERSION, Resource
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
+from opentelemetry.trace import Status, StatusCode
 
 DEFAULT_OTLP_ENDPOINT = "http://observability-otel-collector.observability.svc:4318"
 P = ParamSpec("P")
@@ -94,17 +95,37 @@ def _decorate_with_span(
 
         @wraps(func)
         async def async_wrapper(*args: P.args, **kwargs: P.kwargs):
-            with span(name, **attributes):
-                return await func(*args, **kwargs)
+            with get_tracer().start_as_current_span(name) as active_span:
+                _set_attributes(active_span, attributes)
+                try:
+                    return await func(*args, **kwargs)
+                except Exception as exc:
+                    _record_span_error(active_span, exc)
+                    raise
 
         return async_wrapper
 
     @wraps(func)
     def wrapper(*args: P.args, **kwargs: P.kwargs):
-        with span(name, **attributes):
-            return func(*args, **kwargs)
+        with get_tracer().start_as_current_span(name) as active_span:
+            _set_attributes(active_span, attributes)
+            try:
+                return func(*args, **kwargs)
+            except Exception as exc:
+                _record_span_error(active_span, exc)
+                raise
 
     return wrapper
+
+
+def _set_attributes(active_span: trace.Span, attributes: dict[str, Any]) -> None:
+    for key, value in attributes.items():
+        active_span.set_attribute(key, value)
+
+
+def _record_span_error(active_span: trace.Span, exc: Exception) -> None:
+    active_span.record_exception(exc)
+    active_span.set_status(Status(StatusCode.ERROR, str(exc)))
 
 
 def _trace_endpoint(otlp_endpoint: str | None) -> str:
