@@ -23,7 +23,7 @@ cluster operations are handled by the deploy skill, not this skill.
 - Importable Python package: `tracing_skill_observability`
 - Structured JSON stdout logging with trace/span correlation
 - OpenTelemetry span helpers and OTLP HTTP export
-- Span decorator for sync and async Python functions
+- Span annotation for sync and async Python functions
 - Prometheus metrics helpers and an ASGI `/metrics` app
 - TOML config loading for application/library setup
 - Helper CLI: `tracing-observability-install`
@@ -41,6 +41,23 @@ Use these Python references:
 - [Prometheus export](references/python/prometheus-export.md): expose
   `/metrics` for ASGI apps, start a standalone exporter for workers, and
   use standard HTTP metrics.
+
+## Span Rules
+
+- Prefer the library-provided `@traced_span` annotation for function
+  instrumentation. It records exceptions on the span, marks failures as
+  `ERROR`, and re-raises the original exception.
+- Do not create a local tracing decorator, wrapper, fallback, shim, or
+  guard around `traced_span`. Assume `tracing_skill_observability` is an
+  available dependency when this skill is being used.
+- Do not replace `@traced_span` with a `span(...)` context manager for a
+  whole function. Use the context manager only for short inner operations
+  when annotating the whole function would exceed the span duration rule.
+- Every span should represent work expected to finish in less than 1
+  second. Do not wrap long-running loops, servers, daemons, pollers,
+  watches, consumers, training runs, migrations, or batch jobs in one
+  span. Instead, span individual iterations, requests, messages, queries,
+  chunks, or other bounded operations.
 
 Minimal usage:
 
