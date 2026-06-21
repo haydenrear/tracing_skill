@@ -5,6 +5,8 @@ metrics endpoint.
 
 The package uses the official `prometheus_client` package and exposes
 its normal registry, metric, HTTP server, and ASGI integration patterns.
+If Kubernetes cannot scrape or call the instrumented process because it
+runs outside the cluster, use the JSONL bridge reference instead.
 
 ## Install
 
@@ -51,6 +53,15 @@ metrics_enabled = true
 metrics_port = 9464
 metrics_addr = "0.0.0.0"
 ```
+
+## Pass-Through Kubernetes Pods
+
+Use [JSONL metrics bridge](jsonl-metrics-bridge.md) when a pass-through
+Kubernetes pod needs to serve Prometheus inside the cluster but the
+instrumented service runs on a Mac or other host outside the cluster. In
+that setup, the Mac-side process writes metrics snapshots to a JSONL file
+on a JuiceFS-backed shared volume, and the pod-side daemon reads that file
+to expose `/metrics` locally.
 
 ## Standard HTTP Metrics
 

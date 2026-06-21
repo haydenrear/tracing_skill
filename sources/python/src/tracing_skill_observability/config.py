@@ -14,6 +14,8 @@ class ObservabilityConfig:
     metrics_enabled: bool = True
     metrics_port: int | None = None
     metrics_addr: str = "0.0.0.0"
+    metrics_jsonl_path: str | None = None
+    metrics_jsonl_interval_seconds: float = 5.0
 
 
 def load_config(path: str | Path) -> ObservabilityConfig:
@@ -27,6 +29,8 @@ def load_config(path: str | Path) -> ObservabilityConfig:
         metrics_enabled=data.get("metrics_enabled", True),
         metrics_port=data.get("metrics_port"),
         metrics_addr=data.get("metrics_addr", "0.0.0.0"),
+        metrics_jsonl_path=data.get("metrics_jsonl_path"),
+        metrics_jsonl_interval_seconds=data.get("metrics_jsonl_interval_seconds", 5.0),
     )
 
 
@@ -41,4 +45,6 @@ def configure_observability_from_file(path: str | Path) -> None:
         log_level=config.log_level,
         metrics_port=config.metrics_port if config.metrics_enabled else None,
         metrics_addr=config.metrics_addr,
+        metrics_jsonl_path=config.metrics_jsonl_path if config.metrics_enabled else None,
+        metrics_jsonl_interval_seconds=config.metrics_jsonl_interval_seconds,
     )

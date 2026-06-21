@@ -8,3 +8,10 @@ metrics_enabled = true
 # Prefer metrics_app() for ASGI apps that already expose /metrics.
 # metrics_port = 9464
 # metrics_addr = "0.0.0.0"
+
+# metrics_jsonl_path appends Prometheus registry snapshots to a shared
+# JSONL file. Use this for pass-through Kubernetes pods where a Mac-side
+# service cannot receive requests from inside the cluster, but a pod-side
+# daemon can read a JuiceFS-synced file and expose /metrics in-cluster.
+# metrics_jsonl_path = "/shared/metrics/orders-api.jsonl"
+# metrics_jsonl_interval_seconds = 5.0
