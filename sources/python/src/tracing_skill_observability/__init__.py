@@ -18,12 +18,21 @@ def configure_observability(
     service_version: str | None = None,
     otlp_endpoint: str | None = None,
     log_level: str = "INFO",
+    log_mode: str | None = None,
+    logs_endpoint: str | None = None,
     metrics_enabled: bool = True,
     metrics_port: int | None = None,
     metrics_addr: str = "0.0.0.0",
     metrics_export_interval_seconds: float = 15.0,
 ) -> None:
-    configure_logging(service_name=service_name, log_level=log_level)
+    configure_logging(
+        service_name=service_name,
+        service_version=service_version,
+        log_level=log_level,
+        log_mode=log_mode,
+        logs_endpoint=logs_endpoint,
+        otlp_endpoint=otlp_endpoint,
+    )
     configure_tracing(
         service_name=service_name,
         service_version=service_version,

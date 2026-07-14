@@ -2,7 +2,8 @@
 
 Importable Python package for standardized application observability:
 
-- JSON logs on stdout for Kubernetes log collection.
+- JSON logs on stdout for Kubernetes collection or pushed directly over OTLP
+  from bare-host processes.
 - OpenTelemetry spans exported over OTLP HTTP.
 - Prometheus metrics helpers exported to the monitoring gateway over
   OTLP HTTP, with optional local debugging endpoints.
@@ -47,6 +48,7 @@ service_name = "orders-api"
 service_version = "0.1.0"
 otlp_endpoint = "http://cdc-commit-diff-context-otel-collector.cdc.svc:4318"
 log_level = "INFO"
+log_mode = "stdout"
 ```
 
 ```python
@@ -58,6 +60,14 @@ configure_observability_from_file("observability.toml")
 Structured log keys are `timestamp`, `severity`, `logger`, `message`,
 `service_name`, `trace_id`, `span_id`, any safe `extra` fields, and
 `exception` when exception info is present.
+
+Logging defaults to `stdout`, which is the correct route for pods collected by
+Fluent Bit. A process running on the bare host should use `log_mode="otlp"` to
+print and export, or `log_mode="otlp-only"` to export without printing. `both`
+is an alias for `otlp`. Do not use print-and-export mode in a collected pod or
+the record will reach Loki twice. Set `logs_endpoint` (or
+`OTEL_EXPORTER_OTLP_LOGS_ENDPOINT`) to the full `/v1/logs` endpoint; the general
+`otlp_endpoint`/`OTEL_EXPORTER_OTLP_ENDPOINT` base is used as a fallback.
 
 Use `@traced_span` when a whole function should run inside a span:
 

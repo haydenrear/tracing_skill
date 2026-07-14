@@ -11,6 +11,8 @@ class ObservabilityConfig:
     service_version: str | None = None
     otlp_endpoint: str | None = None
     log_level: str = "INFO"
+    log_mode: str | None = None
+    logs_endpoint: str | None = None
     metrics_enabled: bool = True
     metrics_port: int | None = None
     metrics_addr: str = "0.0.0.0"
@@ -25,6 +27,8 @@ def load_config(path: str | Path) -> ObservabilityConfig:
         service_version=data.get("service_version"),
         otlp_endpoint=data.get("otlp_endpoint"),
         log_level=data.get("log_level", "INFO"),
+        log_mode=data.get("log_mode"),
+        logs_endpoint=data.get("logs_endpoint"),
         metrics_enabled=data.get("metrics_enabled", True),
         metrics_port=data.get("metrics_port"),
         metrics_addr=data.get("metrics_addr", "0.0.0.0"),
@@ -43,6 +47,8 @@ def configure_observability_from_file(path: str | Path) -> None:
         service_version=config.service_version,
         otlp_endpoint=config.otlp_endpoint,
         log_level=config.log_level,
+        log_mode=config.log_mode,
+        logs_endpoint=config.logs_endpoint,
         metrics_enabled=config.metrics_enabled,
         metrics_port=config.metrics_port,
         metrics_addr=config.metrics_addr,
