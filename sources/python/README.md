@@ -4,11 +4,13 @@ Importable Python package for standardized application observability:
 
 - JSON logs on stdout for Kubernetes log collection.
 - OpenTelemetry spans exported over OTLP HTTP.
-- Prometheus metrics helpers and a standard `/metrics` ASGI app.
-- JSONL metrics snapshots for pass-through Kubernetes pods that need to
-  sync metrics through a shared file and serve Prometheus inside the pod.
+- Prometheus metrics helpers exported to the monitoring gateway over
+  OTLP HTTP, with optional local debugging endpoints.
 - Trace and span ids injected into log records emitted inside active
   spans.
+
+Upgrade note: version 0.2 removes the public shared-file metric writer and
+its configuration keys. Configure OTLP push as shown below instead.
 
 ```python
 from tracing_skill_observability import (
@@ -69,19 +71,41 @@ def load_order(order_id: str):
 
 Metrics use the official `prometheus_client` package. You can use native
 Prometheus client counters, histograms, registries, and timing
-decorators alongside this package's helpers.
+decorators alongside this package's helpers. `configure_observability()`
+periodically pushes the default registry to the configured OTLP gateway.
 
-For pass-through Kubernetes pods where the instrumented service runs on a
-Mac outside the cluster, write snapshots to a JuiceFS-backed JSONL file
-instead of relying on cluster-to-Mac requests:
+Set the gateway base URL for the process location. The OTLP exporter adds
+`/v1/metrics` automatically:
 
 ```toml
 [observability]
 service_name = "orders-worker"
 metrics_enabled = true
-metrics_jsonl_path = "/shared/metrics/orders-worker.jsonl"
-metrics_jsonl_interval_seconds = 5.0
+otlp_endpoint = "http://localhost:4318"
+metrics_export_interval_seconds = 15.0
 ```
 
-The pod-side daemon can read the JSONL stream from the mounted volume and
-serve the latest sample values from an in-cluster `/metrics` endpoint.
+Use `http://localhost:4318` from the bare host and
+`http://host.k3d.internal:4318` from a pod. `metrics_app()` and
+`metrics_port` remain available only for local scrape/debugging use; the
+production fleet does not scrape them.
+
+Trace correlation is deliberately opt-in because trace IDs are
+high-cardinality. Declare `trace_id` only on narrowly scoped correlation
+metrics, then populate it from the active span:
+
+```python
+from prometheus_client import Counter
+from tracing_skill_observability import trace_metric_labels
+
+completed = Counter(
+    "orders_completed_total",
+    "Completed orders selected for trace correlation.",
+    ["trace_id", "result"],
+)
+completed.labels(**trace_metric_labels(result="ok")).inc()
+```
+
+A metric without the `trace_id` label is intentionally absent from
+`monitoring trace <id>`. Never add `trace_id` to broad traffic metrics
+such as `http_requests_total`.

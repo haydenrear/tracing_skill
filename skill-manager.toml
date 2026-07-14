@@ -8,5 +8,5 @@ binary = "tracing-observability-install"
 
 [skill]
 name = "tracing-observability"
-version = "0.1.0"
-description = "Python structured logging and tracing plus k3s Helm observability stack."
+version = "0.2.0"
+description = "Python structured logging, OTLP tracing, and Prometheus-to-OTLP metric push."
