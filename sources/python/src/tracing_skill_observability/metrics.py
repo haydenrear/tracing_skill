@@ -40,6 +40,8 @@ from prometheus_client import (
     start_http_server,
 )
 
+from .tracing import default_endpoint
+
 _log = logging.getLogger(__name__)
 
 http_requests_total = Counter(
@@ -336,7 +338,7 @@ def _metrics_endpoint(otlp_endpoint: str | None) -> str:
     base = (
         otlp_endpoint
         or os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
-        or "http://localhost:4318"
+        or default_endpoint("metrics")
     )
     return base if base.endswith("/v1/metrics") else f"{base.rstrip('/')}/v1/metrics"
 

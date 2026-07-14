@@ -1,6 +1,6 @@
 ---
 name: tracing-observability
-description: Use when instrumenting Python libraries or applications with standardized structured JSON logging, Prometheus metrics pushed through OTLP, local metrics debugging endpoints, and OpenTelemetry spans for the tracing-skill observability stack.
+description: Use when instrumenting Python libraries or applications with standardized structured JSON logging, OpenTelemetry spans, and Prometheus metrics, all pushed over OTLP to the shared monitoring cluster, plus local metrics debugging endpoints.
 skill-imports: []
 metadata:
   focus: client-side-python-instrumentation
@@ -17,6 +17,24 @@ metadata:
 
 Use this skill for client-side Python instrumentation. Deployment and
 cluster operations are handled by the deploy skill, not this skill.
+
+## Where Telemetry Goes
+
+Every signal — spans, logs, and metrics — is pushed over OTLP to the OTel
+gateway on the **shared monitoring cluster**, which fans out to Jaeger,
+Loki, and Prometheus. It is deployed once and pointed at thereafter;
+nothing is stored on a service cluster, and nothing scrapes your app.
+
+| Caller | OTLP/HTTP base |
+| --- | --- |
+| A service pod | `http://host.k3d.internal:4318` |
+| The host (tests, native runners) | `http://localhost:4318` |
+
+In a pod the chart injects `OTEL_EXPORTER_OTLP_ENDPOINT`, so **you
+normally configure no endpoint at all**; set one explicitly only for a
+bare-host process. `deploy-helm:references/monitoring-cluster.md` is the
+source of truth for the endpoints, the `monitoring` CLI, and retention.
+Use `monitoring trace <id>` to see a trace across all three signals.
 
 ## Provides
 

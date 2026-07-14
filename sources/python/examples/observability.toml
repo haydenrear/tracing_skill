@@ -1,11 +1,16 @@
 [observability]
 service_name = "orders-api"
 service_version = "0.1.0"
-otlp_endpoint = "http://cdc-commit-diff-context-otel-collector.cdc.svc:4318"
 log_level = "INFO"
 metrics_enabled = true
-# The host gateway is localhost:4318; pods use host.k3d.internal:4318.
 metrics_export_interval_seconds = 15.0
+
+# No otlp_endpoint here on purpose. In a pod the chart injects
+# OTEL_EXPORTER_OTLP_ENDPOINT (http://host.k3d.internal:4318), and a literal
+# here would override it. Uncomment for a bare-host process -- a test or a
+# native runner -- where nothing injects it. It is also the library default.
+# otlp_endpoint = "http://localhost:4318"
+
 # metrics_port starts a local Prometheus debugging endpoint. Production
 # metrics are pushed over OTLP and are not scraped from this endpoint.
 # metrics_port = 9464
