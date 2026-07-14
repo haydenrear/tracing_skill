@@ -1,12 +1,11 @@
-# Python Prometheus Export
+# Python Prometheus Metrics over OTLP
 
-Use this reference when Python services need a standardized Prometheus
-metrics endpoint.
-
-The package uses the official `prometheus_client` package and exposes
-its normal registry, metric, HTTP server, and ASGI integration patterns.
-If Kubernetes cannot scrape or call the instrumented process because it
-runs outside the cluster, use the JSONL bridge reference instead.
+Use this reference when Python services need metrics in the shared
+monitoring cluster. The package keeps the normal `prometheus_client`
+authoring API, periodically walks its registry, and pushes OTLP/HTTP to
+the monitoring gateway. The gateway remote-writes those metrics into
+Prometheus; nothing scrapes application endpoints in the production
+fleet.
 
 ## Install
 
@@ -14,58 +13,74 @@ runs outside the cluster, use the JSONL bridge reference instead.
 tracing-observability-install --project /path/to/project
 ```
 
-## ASGI Applications
+## Configure Push Export
 
-For FastAPI, Starlette, or other ASGI apps, mount the shared metrics app
-at `/metrics`:
-
-```python
-from fastapi import FastAPI
-from tracing_skill_observability import configure_observability, metrics_app
-
-app = FastAPI()
-configure_observability(service_name="orders-api", service_version="0.1.0")
-app.mount("/metrics", metrics_app())
-```
-
-The service should expose a named container port for Prometheus scraping.
-Use the platform chart’s ServiceMonitor conventions for the exact port
-name and path.
-
-## Non-ASGI Processes
-
-For workers or scripts that do not already run an HTTP server, start a
-standalone metrics exporter:
+Configure observability once near application startup:
 
 ```python
 from tracing_skill_observability import configure_observability
 
-configure_observability(service_name="orders-worker", metrics_port=9464)
+configure_observability(
+    service_name="orders-worker",
+    service_version="0.2.0",
+    otlp_endpoint="http://localhost:4318",
+)
 ```
 
-Equivalent TOML config:
+Use `http://localhost:4318` from a bare-host process and
+`http://host.k3d.internal:4318` from a pod. The package also honors
+`OTEL_EXPORTER_OTLP_ENDPOINT` and the metrics-specific
+`OTEL_EXPORTER_OTLP_METRICS_ENDPOINT`.
+
+Equivalent TOML:
 
 ```toml
 [observability]
 service_name = "orders-worker"
-service_version = "0.1.0"
+service_version = "0.2.0"
+otlp_endpoint = "http://localhost:4318"
 metrics_enabled = true
-metrics_port = 9464
-metrics_addr = "0.0.0.0"
+metrics_export_interval_seconds = 15.0
 ```
 
-## Pass-Through Kubernetes Pods
+For an isolated registry, start its pusher explicitly:
 
-Use [JSONL metrics bridge](jsonl-metrics-bridge.md) when a pass-through
-Kubernetes pod needs to serve Prometheus inside the cluster but the
-instrumented service runs on a Mac or other host outside the cluster. In
-that setup, the Mac-side process writes metrics snapshots to a JSONL file
-on a JuiceFS-backed shared volume, and the pod-side daemon reads that file
-to expose `/metrics` locally.
+```python
+from prometheus_client import CollectorRegistry
+from tracing_skill_observability import start_metrics_otlp_pusher
+
+registry = CollectorRegistry()
+start_metrics_otlp_pusher(registry=registry, service_name="orders-worker")
+```
+
+## Trace-Correlated Metrics
+
+`monitoring trace <id>` finds metrics by a `trace_id` metric label. A
+metric without that label will not correlate. Add it only to a
+deliberately scoped correlation metric:
+
+```python
+from prometheus_client import Counter
+from tracing_skill_observability import trace_metric_labels
+
+completed = Counter(
+    "orders_completed_total",
+    "Completed orders selected for trace correlation.",
+    ["trace_id", "result"],
+)
+
+# Call inside an active span.
+completed.labels(**trace_metric_labels(result="ok")).inc()
+```
+
+Trace IDs are inherently high-cardinality. Do not add `trace_id` to
+broad operational series such as `http_requests_total`; keep ordinary
+traffic metrics low-cardinality and use the label only where cross-signal
+correlation is the purpose.
 
 ## Standard HTTP Metrics
 
-The package exposes a counter and histogram for HTTP request metrics:
+The package exposes a low-cardinality counter and histogram:
 
 ```python
 from tracing_skill_observability import http_request_duration, http_requests_total
@@ -78,48 +93,17 @@ with http_request_duration.labels(method="GET", route=route, status=status).time
     handle_request()
 ```
 
-Labels should be low-cardinality. Use route templates such as
-`/orders/{id}`, not raw request paths like `/orders/ord_123`.
+Use route templates such as `/orders/{id}`, not raw request paths.
 
-## Native Prometheus Client APIs
+## Local Debugging Endpoints
 
-Use `prometheus_client` directly for domain-specific metrics. The
-official client supports counters, gauges, summaries, histograms, infos,
-enums, labels, custom registries, and timing decorators/context
-managers.
+`metrics_app()` and `start_metrics_server()` expose the registry for
+local inspection. They are debugging affordances, not production export
+paths: the pure-push monitoring fleet does not scrape them.
 
 ```python
-from prometheus_client import Counter, Histogram
-
-jobs_total = Counter(
-    "orders_jobs_total",
-    "Total order jobs processed.",
-    ["result"],
-)
-
-job_duration = Histogram(
-    "orders_job_duration_seconds",
-    "Order job duration in seconds.",
-)
-
-@job_duration.time()
-def process_job():
-    ...
-```
-
-If an application needs an isolated registry, pass it to the helpers:
-
-```python
-from prometheus_client import CollectorRegistry
 from tracing_skill_observability import metrics_app, start_metrics_server
 
-registry = CollectorRegistry()
-app.mount("/metrics", metrics_app(registry=registry))
-start_metrics_server(9464, registry=registry)
+app.mount("/metrics", metrics_app())
+start_metrics_server(9464)
 ```
-
-## Library Guidance
-
-Reusable libraries should define domain-specific metrics only when the
-metric is part of the library’s public operational contract. Application
-code should own HTTP route labels, service names, and exporter setup.

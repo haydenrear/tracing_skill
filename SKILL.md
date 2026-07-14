@@ -1,6 +1,6 @@
 ---
 name: tracing-observability
-description: Use when instrumenting Python libraries or applications with standardized structured JSON logging, Prometheus metrics export or JSONL metrics bridging, and OpenTelemetry spans for the tracing-skill observability stack.
+description: Use when instrumenting Python libraries or applications with standardized structured JSON logging, Prometheus metrics pushed through OTLP, local metrics debugging endpoints, and OpenTelemetry spans for the tracing-skill observability stack.
 skill-imports: []
 metadata:
   focus: client-side-python-instrumentation
@@ -11,7 +11,6 @@ metadata:
     - references/python/structured-logging.md
     - references/python/jaeger-spans.md
     - references/python/prometheus-export.md
-    - references/python/jsonl-metrics-bridge.md
 ---
 
 # tracing-observability
@@ -25,8 +24,8 @@ cluster operations are handled by the deploy skill, not this skill.
 - Structured JSON stdout logging with trace/span correlation
 - OpenTelemetry span helpers and OTLP HTTP export
 - Span annotation for sync and async Python functions
-- Prometheus metrics helpers, an ASGI `/metrics` app, and a JSONL
-  metrics file bridge
+- Prometheus metrics helpers bridged to OTLP push, plus local debugging
+  endpoints
 - TOML config loading for application/library setup
 - Helper CLI: `tracing-observability-install`
 
@@ -40,14 +39,10 @@ Use these Python references:
 - [Jaeger spans](references/python/jaeger-spans.md): configure OTLP
   tracing, create spans, attach useful attributes, and correlate logs
   with traces.
-- [Prometheus export](references/python/prometheus-export.md): expose
-  `/metrics` for ASGI apps, start a standalone exporter for workers, and
-  use standard HTTP metrics.
-- [JSONL metrics bridge](references/python/jsonl-metrics-bridge.md):
-  write Prometheus registry snapshots to a JSONL file for pass-through
-  Kubernetes pods where the instrumented Mac-side service cannot receive
-  requests from inside the cluster, and a pod-local daemon reads the
-  synced file and serves Prometheus inside the pod.
+- [Prometheus export](references/python/prometheus-export.md): push a
+  Prometheus registry to the monitoring gateway over OTLP, create
+  deliberately trace-correlated metrics, and use local `/metrics`
+  endpoints for debugging.
 
 ## Span Rules
 

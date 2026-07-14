@@ -4,8 +4,8 @@ build-backend = "hatchling.build"
 
 [project]
 name = "tracing-skill-observability"
-version = "0.1.0"
-description = "Structured logging, OpenTelemetry tracing, and Prometheus metrics helpers for Python services."
+version = "0.2.0"
+description = "Structured logging, OpenTelemetry tracing, and Prometheus-to-OTLP metric push for Python services."
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
@@ -24,3 +24,8 @@ tracing-observability-install = "tracing_skill_observability.install:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/tracing_skill_observability"]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+]

@@ -15,8 +15,7 @@ log_level = "DEBUG"
 metrics_enabled = true
 metrics_port = 9464
 metrics_addr = "127.0.0.1"
-metrics_jsonl_path = "/shared/metrics/orders.jsonl"
-metrics_jsonl_interval_seconds = 2.5
+metrics_export_interval_seconds = 2.5
 """
     )
 
@@ -29,5 +28,4 @@ metrics_jsonl_interval_seconds = 2.5
     assert config.metrics_enabled is True
     assert config.metrics_port == 9464
     assert config.metrics_addr == "127.0.0.1"
-    assert config.metrics_jsonl_path == "/shared/metrics/orders.jsonl"
-    assert config.metrics_jsonl_interval_seconds == 2.5
+    assert config.metrics_export_interval_seconds == 2.5
