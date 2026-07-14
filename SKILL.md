@@ -21,7 +21,8 @@ cluster operations are handled by the deploy skill, not this skill.
 ## Provides
 
 - Importable Python package: `tracing_skill_observability`
-- Structured JSON stdout logging with trace/span correlation
+- Structured JSON logging with trace/span correlation, delivered through
+  container stdout or direct OTLP HTTP export
 - OpenTelemetry span helpers and OTLP HTTP export
 - Span annotation for sync and async Python functions
 - Prometheus metrics helpers bridged to OTLP push, plus local debugging
@@ -34,8 +35,8 @@ cluster operations are handled by the deploy skill, not this skill.
 Use these Python references:
 
 - [Structured logging](references/python/structured-logging.md):
-  configure JSON stdout logs, standard log keys, and library logging
-  expectations.
+  configure JSON stdout/OTLP delivery modes, standard log keys, and library
+  logging expectations for containers and bare-host processes.
 - [Jaeger spans](references/python/jaeger-spans.md): configure OTLP
   tracing, create spans, attach useful attributes, and correlate logs
   with traces.
