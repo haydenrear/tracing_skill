@@ -1,7 +1,9 @@
 # Python Jaeger Spans
 
 Use this reference when Python code needs trace spans that appear in
-Jaeger through the platform OpenTelemetry Collector.
+Jaeger. Spans are exported over OTLP/HTTP to the OTel gateway on the
+shared monitoring cluster, which fans them out to Jaeger. There is
+exactly one gateway, and it is the only place telemetry is sent.
 
 ## Install
 
@@ -11,36 +13,70 @@ tracing-observability-install --project /path/to/project
 
 ## Configure
 
-Configure tracing once near application startup:
-
-```python
-from tracing_skill_observability import configure_tracing
-
-configure_tracing(
-    service_name="orders-api",
-    service_version="0.1.0",
-    otlp_endpoint="http://cdc-commit-diff-context-otel-collector.cdc.svc:4318",
-)
-```
-
-Most services should use the combined setup:
+**In a pod, set no endpoint at all.** The chart injects the OTel
+environment variables, and the library reads them:
 
 ```python
 from tracing_skill_observability import configure_observability
 
+configure_observability(service_name="orders-api", service_version="0.1.0")
+```
+
+Hardcoding an `otlp_endpoint=` in a deployed service overrides the value
+the platform injected, which is how a service ends up pointing at a
+collector that no longer exists. Pass one only when nothing injects it.
+
+Set it explicitly for a bare-host process — a test, a native runner, a
+local script — because there is no chart to configure it:
+
+```python
 configure_observability(
-    service_name="orders-api",
+    service_name="orders-worker",
     service_version="0.1.0",
-    otlp_endpoint="http://cdc-commit-diff-context-otel-collector.cdc.svc:4318",
+    otlp_endpoint="http://localhost:4318",
 )
 ```
 
-The library also honors:
+## Endpoints
+
+The monitoring cluster maps its gateway ports to the Docker host, so one
+exposure serves callers on both sides:
+
+| Caller | OTLP/HTTP base |
+| --- | --- |
+| A service pod | `http://host.k3d.internal:4318` |
+| The host (tests, native runners) | `http://localhost:4318` |
+
+`http://localhost:4318` is the library default, so an unconfigured
+bare-host process works and an unconfigured pod logs a warning naming the
+variable to set. Pass the **base** URL: the exporter appends `/v1/traces`
+itself.
+
+`deploy-helm:references/monitoring-cluster.md` is the source of truth for
+these endpoints and for every other signal (Loki, Prometheus, Grafana).
+Read it there rather than trusting a literal copied out of this file.
+
+## Environment Variables
+
+The platform chart injects these; the library honors them, and an
+explicitly passed argument is what you use when nothing does:
 
 - `OTEL_SERVICE_NAME`
-- `OTEL_EXPORTER_OTLP_ENDPOINT`
-- `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`
+- `OTEL_EXPORTER_OTLP_ENDPOINT` — base URL, no `/v1/...` suffix
+- `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` — full traces URL for this signal only
+- `OTEL_EXPORTER_OTLP_PROTOCOL` — `http/protobuf`
+- `OTEL_EXPORTER_OTLP_HEADERS`
+- `OTEL_RESOURCE_ATTRIBUTES`
 - `DEPLOYMENT_ENVIRONMENT`
+
+The traces endpoint resolves in this order, and the signal-specific
+variable deliberately wins outright — it is how an operator redirects one
+signal of an already-configured process without editing it:
+
+1. `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`
+2. the `otlp_endpoint=` argument
+3. `OTEL_EXPORTER_OTLP_ENDPOINT`
+4. `http://localhost:4318` (the default, which warns)
 
 ## Span Duration Rule
 
@@ -143,11 +179,35 @@ def reprice_position(position_id: str):
     log.info("position.reprice.started", extra={"position_id": position_id})
 ```
 
-## Jaeger
+## Find A Trace
 
-Jaeger is expected to be exposed by the platform through nginx TCP.
-Use the platform-provided URL:
+Reach for the `monitoring` CLI, not a UI. It resolves one trace id across
+all three signals at once, which is the reason the shared cluster exists:
 
-```text
-http://<nginx-host>:16686
+```bash
+monitoring trace <id>                  # spans + log lines + metric series
+monitoring trace <id> --require-all    # fails unless all three arrived
+monitoring trace <id> --json           # machine-readable
 ```
+
+`--require-all` is the end-to-end check on instrumentation: it passes only
+when the span reached Jaeger, the log line reached Loki carrying the trace
+id, and a metric series carrying a `trace_id` label reached Prometheus.
+
+The Jaeger UI is on the monitoring cluster at `http://localhost:16686`.
+
+## What The Backends Remember
+
+A trace that is missing is often a trace that expired. Before concluding
+the instrumentation is broken, check the age of what you are looking for:
+
+| Backend | Retention |
+| --- | --- |
+| Jaeger (spans) | in-memory, 50k traces; **does not survive a monitoring-cluster restart** |
+| Prometheus (metrics) | 15 days, or 10GB |
+| Loki (logs) | 72 hours |
+
+Jaeger's storage is in-memory by design. Traces do survive a *service*
+cluster being destroyed — which is the property the split-out was for —
+but they do not survive the monitoring cluster itself restarting. A
+week-old trace is gone, and its logs are gone at three days.

@@ -27,10 +27,18 @@ configure_observability(
 )
 ```
 
-Use `http://localhost:4318` from a bare-host process and
-`http://host.k3d.internal:4318` from a pod. The package also honors
-`OTEL_EXPORTER_OTLP_ENDPOINT` and the metrics-specific
-`OTEL_EXPORTER_OTLP_METRICS_ENDPOINT`.
+The example above sets `otlp_endpoint` because a bare-host process has nothing
+to inject one. **In a pod, pass no endpoint**: the chart injects
+`OTEL_EXPORTER_OTLP_ENDPOINT` (`http://host.k3d.internal:4318`), and a literal
+in your config would override it. `http://localhost:4318` is the default, so a
+host process works unconfigured. The package also honors the metrics-specific
+`OTEL_EXPORTER_OTLP_METRICS_ENDPOINT`, which wins over both.
+
+`deploy-helm:references/monitoring-cluster.md` is the source of truth for the
+endpoints.
+
+Prometheus retains **15 days, or 10GB**, whichever binds first. A series older
+than that is absent because it expired, not because the push failed.
 
 Equivalent TOML:
 

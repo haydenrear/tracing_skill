@@ -14,7 +14,7 @@ from opentelemetry.sdk._logs.export import BatchLogRecordProcessor
 from opentelemetry.sdk.resources import SERVICE_NAME, SERVICE_VERSION, Resource
 from opentelemetry.trace import TraceFlags
 
-from .tracing import DEFAULT_OTLP_ENDPOINT
+from .tracing import default_endpoint
 
 try:
     from opentelemetry.sdk._logs.export import LogRecordExportResult as _LogExportResult
@@ -175,7 +175,7 @@ def _log_endpoint(
         logs_endpoint
         or otlp_endpoint
         or os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
-        or DEFAULT_OTLP_ENDPOINT
+        or default_endpoint("logs")
     )
     return base if base.endswith("/v1/logs") else f"{base.rstrip('/')}/v1/logs"
 

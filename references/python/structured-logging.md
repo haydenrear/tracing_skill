@@ -1,8 +1,14 @@
 # Python Structured Logging
 
 Use this reference when a Python library or application needs
-standardized JSON logs that can be collected from stdout and correlated
-with OpenTelemetry traces.
+standardized JSON logs correlated with OpenTelemetry traces.
+
+Logs reach Loki on the shared monitoring cluster by one of two routes: Fluent
+Bit tails a pod's stdout, or the process exports OTLP directly. A pod gets the
+first for free; a bare-host process has to opt into the second, because nothing
+is tailing it. Both land the same JSON. Loki keeps it for **72 hours** — logs
+older than that are gone, and no amount of instrumentation will bring them
+back.
 
 ## Install
 
@@ -46,6 +52,11 @@ Log delivery modes are explicit:
 Do not select `otlp` for a pod whose stdout is already collected by Fluent Bit:
 the same record will reach Loki through both routes and be counted twice. Use
 `stdout` there, or `otlp-only` when direct export is deliberately required.
+
+When exporting, the OTLP base is `http://localhost:4318` from the host and
+`http://host.k3d.internal:4318` from a pod, where the chart injects it as
+`OTEL_EXPORTER_OTLP_ENDPOINT`. `deploy-helm:references/monitoring-cluster.md`
+is the source of truth for both.
 
 The OTLP record body is byte-for-byte the JSON string written to stdout. The
 gateway's raw Loki format therefore preserves the top-level `trace_id`, so the

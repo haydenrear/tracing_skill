@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 from contextlib import contextmanager
 from functools import wraps
@@ -13,9 +14,14 @@ from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
 from opentelemetry.trace import Status, StatusCode
 
-DEFAULT_OTLP_ENDPOINT = "http://observability-otel-collector.observability.svc:4318"
+# The monitoring cluster maps its gateway ports to the Docker host, so the host
+# view is the only one that works with no configuration at all. A pod reaches
+# the same gateway at http://host.k3d.internal:4318, which the chart injects as
+# OTEL_EXPORTER_OTLP_ENDPOINT.
+DEFAULT_OTLP_ENDPOINT = "http://localhost:4318"
 P = ParamSpec("P")
 R = TypeVar("R")
+_warned_default_endpoint = False
 
 
 def configure_tracing(
@@ -128,10 +134,42 @@ def _record_span_error(active_span: trace.Span, exc: Exception) -> None:
     active_span.set_status(Status(StatusCode.ERROR, str(exc)))
 
 
+def default_endpoint(signal: str) -> str:
+    """Return the fallback OTLP base URL, warning the first time it is used.
+
+    Reaching this means nothing configured an endpoint: no argument, no
+    `OTEL_EXPORTER_OTLP_ENDPOINT`, no signal-specific variable. That is correct
+    on the Docker host, where the monitoring gateway is published on localhost,
+    and wrong everywhere else -- so say so once rather than dropping telemetry
+    into a socket nobody is listening on.
+    """
+
+    global _warned_default_endpoint
+    if not _warned_default_endpoint:
+        _warned_default_endpoint = True
+        logging.getLogger(__name__).warning(
+            "observability.endpoint.defaulted",
+            extra={
+                "signal": signal,
+                "endpoint": DEFAULT_OTLP_ENDPOINT,
+                "hint": (
+                    "No OTLP endpoint configured; assuming the monitoring gateway is "
+                    "published on this host. In a pod, set OTEL_EXPORTER_OTLP_ENDPOINT "
+                    "to http://host.k3d.internal:4318 (the chart injects it)."
+                ),
+            },
+        )
+    return DEFAULT_OTLP_ENDPOINT
+
+
 def _trace_endpoint(otlp_endpoint: str | None) -> str:
     explicit = os.getenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT")
     if explicit:
         return explicit
 
-    base = otlp_endpoint or os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT") or DEFAULT_OTLP_ENDPOINT
+    base = (
+        otlp_endpoint
+        or os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
+        or default_endpoint("traces")
+    )
     return base if base.endswith("/v1/traces") else f"{base.rstrip('/')}/v1/traces"

@@ -1,14 +1,29 @@
 # tracing-skill-observability
 
-Importable Python package for standardized application observability:
+Importable Python package for standardized application observability. Every
+signal is pushed over OTLP to the OTel gateway on the shared monitoring
+cluster, which fans out to Jaeger, Loki, and Prometheus.
 
-- JSON logs on stdout for Kubernetes collection or pushed directly over OTLP
+- JSON logs on stdout for Kubernetes collection, or pushed directly over OTLP
   from bare-host processes.
 - OpenTelemetry spans exported over OTLP HTTP.
 - Prometheus metrics helpers exported to the monitoring gateway over
   OTLP HTTP, with optional local debugging endpoints.
 - Trace and span ids injected into log records emitted inside active
   spans.
+
+## Endpoint
+
+| Caller | OTLP/HTTP base |
+| --- | --- |
+| A service pod | `http://host.k3d.internal:4318` |
+| The host (tests, native runners) | `http://localhost:4318` |
+
+In a pod the chart injects `OTEL_EXPORTER_OTLP_ENDPOINT`, so configure **no**
+endpoint — a literal in your config would override the right answer with a
+stale one. `http://localhost:4318` is the default, so a bare-host process works
+unconfigured; an unconfigured pod logs a warning naming the variable to set.
+See `deploy-helm:references/monitoring-cluster.md` for the source of truth.
 
 Upgrade note: version 0.2 removes the public shared-file metric writer and
 its configuration keys. Configure OTLP push as shown below instead.
@@ -46,7 +61,6 @@ Or configure from TOML:
 [observability]
 service_name = "orders-api"
 service_version = "0.1.0"
-otlp_endpoint = "http://cdc-commit-diff-context-otel-collector.cdc.svc:4318"
 log_level = "INFO"
 log_mode = "stdout"
 ```
@@ -84,7 +98,7 @@ Prometheus client counters, histograms, registries, and timing
 decorators alongside this package's helpers. `configure_observability()`
 periodically pushes the default registry to the configured OTLP gateway.
 
-Set the gateway base URL for the process location. The OTLP exporter adds
+Set the gateway base URL only where nothing injects it. The OTLP exporter adds
 `/v1/metrics` automatically:
 
 ```toml
@@ -95,10 +109,8 @@ otlp_endpoint = "http://localhost:4318"
 metrics_export_interval_seconds = 15.0
 ```
 
-Use `http://localhost:4318` from the bare host and
-`http://host.k3d.internal:4318` from a pod. `metrics_app()` and
-`metrics_port` remain available only for local scrape/debugging use; the
-production fleet does not scrape them.
+`metrics_app()` and `metrics_port` remain available only for local
+scrape/debugging use; the production fleet does not scrape them.
 
 Trace correlation is deliberately opt-in because trace IDs are
 high-cardinality. Declare `trace_id` only on narrowly scoped correlation
