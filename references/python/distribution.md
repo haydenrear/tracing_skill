@@ -10,13 +10,13 @@ The package version is `0.3.0`. Until that wheel is published to a package
 registry, pin the tracing-skill repository by its full 40-character commit SHA:
 
 ```bash
-uv add "tracing-skill-observability @ git+https://github.com/haydenrear/tracing_skill.git@<full-commit-sha>#subdirectory=sources/python"
+uv add "tracing-skill-observability @ git+https://github.com/haydenrear/tracing_skill.git@618d33169d9aa3e168c60ab9100fb7efb24a13e6#subdirectory=sources/python"
 uv lock --check
 ```
 
-Replace the placeholder with the reviewed tracing-skill commit containing the
-required package version. Commit both `pyproject.toml` and `uv.lock`; the lock
-must retain the resolved commit, not a branch or tag that can move.
+This pin is the first remotely fetchable tracing-skill commit containing the
+reviewed `0.3.0` provider. Commit both `pyproject.toml` and `uv.lock`; the lock
+must retain this resolved commit, not a branch or tag that can move.
 
 The skill-manager installer builds a versioned wheel once and installs that
 wheel into selected environments. Its generated `tracing-observability-install`
