@@ -37,6 +37,42 @@ configure_observability(
 )
 ```
 
+## Runtime handle and W3C propagation
+
+Aggregate setup returns a runtime handle. Read its trace ID inside a bounded
+operation span, end that span, then flush before a short-lived process exits:
+
+```python
+from tracing_skill_observability import (
+    configure_observability,
+    get_tracer,
+    span,
+)
+
+observability = configure_observability(service_name="orders-worker")
+
+with span("publish-order"):
+    print(observability.trace_id)
+    outgoing_headers = observability.inject({})
+    publish_order(outgoing_headers)
+
+flushed = observability.flush()
+```
+
+The ID is a lowercase 32-hex OpenTelemetry trace ID. `flush()` reports exporter
+failure with `False` but does not raise into business code.
+
+For an incoming carrier, pass the extracted context to the operation span:
+
+```python
+parent = observability.extract(incoming_headers)
+with get_tracer().start_as_current_span("consume-order", context=parent):
+    ...
+```
+
+Valid W3C context preserves the upstream trace ID. Absent or malformed context
+fails open to an empty context, so the operation starts a new root trace.
+
 ## Endpoints
 
 The monitoring cluster maps its gateway ports to the Docker host, so one

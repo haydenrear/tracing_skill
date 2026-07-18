@@ -1,6 +1,6 @@
 ---
 name: tracing-observability
-description: Use when instrumenting Python libraries or applications with standardized structured JSON logging, OpenTelemetry spans, and Prometheus metrics, all pushed over OTLP to the shared monitoring cluster, plus local metrics debugging endpoints.
+description: Use when instrumenting Python libraries or JVM-native applications with standardized structured JSON logging, OpenTelemetry spans and metrics, W3C propagation, and bounded fail-open flushes; package-owned providers default to OTLP delivery to the shared monitoring cluster.
 skill-imports: []
 metadata:
   focus: client-side-python-instrumentation
@@ -10,20 +10,24 @@ metadata:
   references:
     - references/python/structured-logging.md
     - references/python/jaeger-spans.md
-    - references/python/prometheus-export.md
+    - references/python/opentelemetry-metrics.md
+    - references/python/distribution.md
 ---
 
 # tracing-observability
 
-Use this skill for client-side Python instrumentation. Deployment and
-cluster operations are handled by the deploy skill, not this skill.
+Use this skill for client-side Python instrumentation and for the shared wire and
+lifecycle contract implemented with native OpenTelemetry SDKs in JVM consumers.
+Deployment and cluster operations are handled by the deploy skill, not this skill.
 
 ## Where Telemetry Goes
 
-Every signal — spans, logs, and metrics — is pushed over OTLP to the OTel
-gateway on the **shared monitoring cluster**, which fans out to Jaeger,
-Loki, and Prometheus. It is deployed once and pointed at thereafter;
-nothing is stored on a service cluster, and nothing scrapes your app.
+When this package owns a signal provider, it pushes that signal over OTLP to
+the OTel gateway on the **shared monitoring cluster**, which fans out to
+Jaeger, Loki, and Prometheus. It is deployed once and pointed at thereafter;
+nothing is stored on a service cluster, and nothing scrapes your app. A
+preinstalled host provider remains externally managed: the host defines its
+transport, resource, delivery, flush, and lifecycle behavior.
 
 | Caller | OTLP/HTTP base |
 | --- | --- |
@@ -43,10 +47,11 @@ Use `monitoring trace <id>` to see a trace across all three signals.
   container stdout or direct OTLP HTTP export
 - OpenTelemetry span helpers and OTLP HTTP export
 - Span annotation for sync and async Python functions
-- Prometheus metrics helpers bridged to OTLP push, plus local debugging
-  endpoints
+- Native OpenTelemetry metrics instruments with package-owned SDK/OTLP defaults
+  or unchanged use of an externally managed host provider
 - TOML config loading for application/library setup
-- Helper CLI: `tracing-observability-install`
+- Skill-managed helper CLI: `tracing-observability-install`
+- Immutable Python source-pin and JVM-native consumption contract
 
 ## Start Here
 
@@ -58,10 +63,12 @@ Use these Python references:
 - [Jaeger spans](references/python/jaeger-spans.md): configure OTLP
   tracing, create spans, attach useful attributes, and correlate logs
   with traces.
-- [Prometheus export](references/python/prometheus-export.md): push a
-  Prometheus registry to the monitoring gateway over OTLP, create
-  deliberately trace-correlated metrics, and use local `/metrics`
-  endpoints for debugging.
+- [OpenTelemetry metrics](references/python/opentelemetry-metrics.md): author
+  standard instruments, use the SDK-owned OTLP route, and create deliberately
+  trace-correlated measurements.
+- [Distribution and JVM consumption](references/python/distribution.md): pin
+  the Python package immutably and implement the same W3C/flush contract in
+  JVM consumers without embedding Python.
 
 ## Span Rules
 
