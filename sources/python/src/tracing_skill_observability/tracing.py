@@ -2,17 +2,34 @@ from __future__ import annotations
 
 import logging
 import os
+import re
+import time
 from contextlib import contextmanager
+from dataclasses import dataclass
 from functools import wraps
 from inspect import iscoroutinefunction
-from typing import Any, Callable, Iterator, ParamSpec, TypeVar, overload
+from threading import Event, Lock, Thread
+from typing import (
+    Any,
+    Callable,
+    Iterator,
+    Mapping,
+    MutableMapping,
+    ParamSpec,
+    TypeVar,
+    overload,
+)
 
 from opentelemetry import trace
+from opentelemetry.context import Context
 from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
-from opentelemetry.sdk.resources import DEPLOYMENT_ENVIRONMENT, SERVICE_NAME, SERVICE_VERSION, Resource
+from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
 from opentelemetry.trace import Status, StatusCode
+from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator
+
+from ._resource import create_observability_resource
 
 # The monitoring cluster maps its gateway ports to the Docker host, so the host
 # view is the only one that works with no configuration at all. A pod reaches
@@ -22,6 +39,29 @@ DEFAULT_OTLP_ENDPOINT = "http://localhost:4318"
 P = ParamSpec("P")
 R = TypeVar("R")
 _warned_default_endpoint = False
+_tracer_provider: trace.TracerProvider | None = None
+_tracer_provider_owned = False
+_tracer_processor_configured = False
+_tracer_provider_lock = Lock()
+_w3c_propagator = TraceContextTextMapPropagator()
+_trace_id_pattern = re.compile(r"[0-9a-f]{32}")
+
+
+@dataclass(frozen=True)
+class TraceHandle:
+    """Agent-visible identifier for one valid OpenTelemetry trace."""
+
+    trace_id: str
+
+    def __post_init__(self) -> None:
+        if (
+            not _trace_id_pattern.fullmatch(self.trace_id)
+            or int(self.trace_id, 16) == 0
+        ):
+            raise ValueError("trace_id must be a valid lowercase 32-hex trace ID")
+
+    def __str__(self) -> str:
+        return self.trace_id
 
 
 def configure_tracing(
@@ -29,26 +69,152 @@ def configure_tracing(
     service_name: str | None = None,
     service_version: str | None = None,
     otlp_endpoint: str | None = None,
+    resource: Resource | None = None,
+) -> trace.TracerProvider:
+    global _tracer_processor_configured, _tracer_provider, _tracer_provider_owned
+
+    with _tracer_provider_lock:
+        if _tracer_provider is not None:
+            if _tracer_provider_owned and not _tracer_processor_configured:
+                _install_span_processor(_tracer_provider, otlp_endpoint)
+            return _tracer_provider
+
+        provider = trace.get_tracer_provider()
+        if not isinstance(provider, trace.ProxyTracerProvider):
+            _tracer_provider = provider
+            return provider
+
+        candidate = TracerProvider(
+            resource=(
+                resource
+                if resource is not None
+                else _trace_resource(service_name, service_version)
+            )
+        )
+        trace.set_tracer_provider(candidate)
+        provider = trace.get_tracer_provider()
+        _tracer_provider_owned = provider is candidate
+        _tracer_provider = provider
+        if _tracer_provider_owned:
+            _install_span_processor(provider, otlp_endpoint)
+        return provider
+
+
+def _install_span_processor(
+    provider: trace.TracerProvider,
+    otlp_endpoint: str | None,
 ) -> None:
-    endpoint = _trace_endpoint(otlp_endpoint)
-    attributes: dict[str, str] = {}
+    global _tracer_processor_configured
 
-    service = service_name or os.getenv("OTEL_SERVICE_NAME")
-    if service:
-        attributes[SERVICE_NAME] = service
-    if service_version:
-        attributes[SERVICE_VERSION] = service_version
-    if os.getenv("DEPLOYMENT_ENVIRONMENT"):
-        attributes[DEPLOYMENT_ENVIRONMENT] = os.environ["DEPLOYMENT_ENVIRONMENT"]
-
-    resource = Resource.create(attributes)
-    provider = TracerProvider(resource=resource)
-    provider.add_span_processor(BatchSpanProcessor(OTLPSpanExporter(endpoint=endpoint)))
-    trace.set_tracer_provider(provider)
+    processor = BatchSpanProcessor(
+        OTLPSpanExporter(endpoint=_trace_endpoint(otlp_endpoint))
+    )
+    provider.add_span_processor(processor)
+    _tracer_processor_configured = True
 
 
 def get_tracer(name: str | None = None) -> trace.Tracer:
     return trace.get_tracer(name or os.getenv("OTEL_SERVICE_NAME") or "tracing-skill")
+
+
+def current_trace_handle() -> TraceHandle | None:
+    """Return the active lowercase 32-hex trace identifier, if one exists."""
+
+    span_context = trace.get_current_span().get_span_context()
+    if not span_context.is_valid:
+        return None
+    return TraceHandle(format(span_context.trace_id, "032x"))
+
+
+def current_trace_id() -> str | None:
+    """Return the active trace ID directly for agent output and artifacts."""
+
+    handle = current_trace_handle()
+    return handle.trace_id if handle is not None else None
+
+
+def inject_trace_context(
+    carrier: MutableMapping[str, str] | None = None,
+) -> MutableMapping[str, str]:
+    """Inject the active W3C trace context, failing open on bad carriers."""
+
+    target = carrier if carrier is not None else {}
+    try:
+        _w3c_propagator.inject(target)
+    except Exception:
+        logging.getLogger(__name__).exception(
+            "observability.trace_context.inject_failed"
+        )
+    return target
+
+
+def extract_trace_context(carrier: Mapping[str, str] | None) -> Context:
+    """Extract a W3C parent context; absent or malformed input becomes a root."""
+
+    try:
+        normalized = {
+            str(key).lower(): value for key, value in (carrier or {}).items()
+        }
+        return _w3c_propagator.extract(normalized, context=Context())
+    except Exception:
+        logging.getLogger(__name__).exception(
+            "observability.trace_context.extract_failed"
+        )
+        return Context()
+
+
+def force_flush_tracing(timeout_millis: int = 5_000) -> bool:
+    """Flush completed spans without raising into application code."""
+
+    deadline = time.monotonic() + max(0, timeout_millis) / 1_000
+    if not _tracer_provider_lock.acquire(
+        timeout=max(0.0, deadline - time.monotonic())
+    ):
+        return False
+    provider = _tracer_provider
+    if provider is None:
+        _tracer_provider_lock.release()
+        return True
+    if time.monotonic() >= deadline:
+        _tracer_provider_lock.release()
+        return False
+    complete = Event()
+    outcome = {"success": False}
+
+    def flush_selected_provider() -> None:
+        try:
+            force_flush = getattr(provider, "force_flush", None)
+            outcome["success"] = force_flush is None or bool(
+                force_flush(
+                    timeout_millis=max(
+                        0,
+                        int((deadline - time.monotonic()) * 1_000 + 0.999),
+                    )
+                )
+            )
+        except Exception:
+            logging.getLogger(__name__).exception(
+                "observability.tracing.flush_failed"
+            )
+        finally:
+            _tracer_provider_lock.release()
+            complete.set()
+
+    try:
+        Thread(
+            target=flush_selected_provider,
+            name="observability-tracing-flush",
+            daemon=True,
+        ).start()
+    except Exception:
+        _tracer_provider_lock.release()
+        logging.getLogger(__name__).exception(
+            "observability.tracing.flush_worker_failed"
+        )
+        return False
+    if not complete.wait(timeout=max(0.0, deadline - time.monotonic())):
+        return False
+    return bool(outcome["success"]) and time.monotonic() < deadline
 
 
 @contextmanager
@@ -56,6 +222,7 @@ def span(name: str, **attributes: Any) -> Iterator[trace.Span]:
     with get_tracer().start_as_current_span(name) as active_span:
         for key, value in attributes.items():
             active_span.set_attribute(key, value)
+        _record_trace_correlation()
         yield active_span
 
 
@@ -101,8 +268,13 @@ def _decorate_with_span(
 
         @wraps(func)
         async def async_wrapper(*args: P.args, **kwargs: P.kwargs):
-            with get_tracer().start_as_current_span(name) as active_span:
+            with get_tracer().start_as_current_span(
+                name,
+                record_exception=False,
+                set_status_on_exception=False,
+            ) as active_span:
                 _set_attributes(active_span, attributes)
+                _record_trace_correlation()
                 try:
                     return await func(*args, **kwargs)
                 except Exception as exc:
@@ -113,8 +285,13 @@ def _decorate_with_span(
 
     @wraps(func)
     def wrapper(*args: P.args, **kwargs: P.kwargs):
-        with get_tracer().start_as_current_span(name) as active_span:
+        with get_tracer().start_as_current_span(
+            name,
+            record_exception=False,
+            set_status_on_exception=False,
+        ) as active_span:
             _set_attributes(active_span, attributes)
+            _record_trace_correlation()
             try:
                 return func(*args, **kwargs)
             except Exception as exc:
@@ -132,6 +309,24 @@ def _set_attributes(active_span: trace.Span, attributes: dict[str, Any]) -> None
 def _record_span_error(active_span: trace.Span, exc: Exception) -> None:
     active_span.record_exception(exc)
     active_span.set_status(Status(StatusCode.ERROR, str(exc)))
+
+
+def _record_trace_correlation() -> None:
+    from .metrics import record_trace_correlation
+
+    try:
+        record_trace_correlation()
+    except Exception:
+        logging.getLogger(__name__).exception(
+            "observability.trace_correlation.record_failed"
+        )
+
+
+def _trace_resource(
+    service_name: str | None,
+    service_version: str | None,
+) -> Resource:
+    return create_observability_resource(service_name, service_version)
 
 
 def default_endpoint(signal: str) -> str:

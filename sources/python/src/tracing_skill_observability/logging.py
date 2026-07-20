@@ -2,18 +2,21 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import os
 import sys
+import time
 from datetime import datetime, timezone
+from threading import Event, Lock, Thread
 from typing import Any
 
 from opentelemetry import trace
 from opentelemetry.exporter.otlp.proto.http._log_exporter import OTLPLogExporter
 from opentelemetry.sdk._logs import LoggerProvider, LoggingHandler
 from opentelemetry.sdk._logs.export import BatchLogRecordProcessor
-from opentelemetry.sdk.resources import SERVICE_NAME, SERVICE_VERSION, Resource
-from opentelemetry.trace import TraceFlags
+from opentelemetry.sdk.resources import Resource
 
+from ._resource import create_observability_resource, observability_service_name
 from .tracing import default_endpoint
 
 try:
@@ -45,16 +48,37 @@ _RESERVED = {
     "thread",
     "threadName",
 }
+_CANONICAL_FIELDS = {
+    "exception",
+    "logger",
+    "message",
+    "service_name",
+    "severity",
+    "span_id",
+    "timestamp",
+    "trace_flags",
+    "trace_id",
+}
+_logger_providers: dict[int, LoggerProvider] = {}
+_logger_providers_lock = Lock()
 
 
 class JsonLogFormatter(logging.Formatter):
-    def __init__(self, *, service_name: str | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        service_name: str | None = None,
+        resource: Resource | None = None,
+    ) -> None:
         super().__init__()
-        self.service_name = service_name or os.getenv("OTEL_SERVICE_NAME")
+        resolved_resource = resource or create_observability_resource(service_name, None)
+        self.service_name = observability_service_name(resolved_resource)
 
     def format(self, record: logging.LogRecord) -> str:
         body: dict[str, Any] = {
-            "timestamp": datetime.fromtimestamp(record.created, timezone.utc).isoformat(),
+            "timestamp": datetime.fromtimestamp(
+                record.created, timezone.utc
+            ).isoformat(),
             "severity": record.levelname,
             "logger": record.name,
             "message": record.getMessage(),
@@ -68,7 +92,11 @@ class JsonLogFormatter(logging.Formatter):
             body["span_id"] = format(span_context.span_id, "016x")
 
         for key, value in record.__dict__.items():
-            if key not in _RESERVED and not key.startswith("_"):
+            if (
+                key not in _RESERVED
+                and key not in _CANONICAL_FIELDS
+                and not key.startswith("_")
+            ):
                 body[key] = _json_safe(value)
 
         if record.exc_info:
@@ -80,7 +108,9 @@ class JsonLogFormatter(logging.Formatter):
 class _JsonOtlpLoggingHandler(LoggingHandler):
     def _translate(self, record: logging.LogRecord):
         translated = super()._translate(record)
-        translated.trace_flags = translated.trace_flags or TraceFlags.SAMPLED
+        translated.body = self.format(record)
+        for field in _CANONICAL_FIELDS:
+            translated.attributes.pop(field, None)
         translated.attributes["loki.format"] = "raw"
         return translated
 
@@ -119,32 +149,114 @@ def configure_logging(
     logs_endpoint: str | None = None,
     otlp_endpoint: str | None = None,
     root_logger: logging.Logger | None = None,
-) -> None:
+    resource: Resource | None = None,
+) -> LoggerProvider | None:
     logger = root_logger or logging.getLogger()
-    logger.handlers.clear()
-    logger.setLevel(log_level.upper())
+    with _logger_providers_lock:
+        provider = None
+        committed = False
+        try:
+            mode = _log_mode(log_mode)
+            level = logging._checkLevel(log_level.upper())
+            resolved_resource = (
+                resource
+                if resource is not None
+                else _log_resource(service_name, service_version)
+            )
+            formatter = JsonLogFormatter(resource=resolved_resource)
+            handlers: list[logging.Handler] = []
+            if mode in {"stdout", "otlp"}:
+                stdout_handler = logging.StreamHandler(sys.stdout)
+                stdout_handler.setFormatter(formatter)
+                handlers.append(stdout_handler)
 
-    mode = _log_mode(log_mode)
-    formatter = JsonLogFormatter(service_name=service_name)
-    if mode in {"stdout", "otlp"}:
-        stdout_handler = logging.StreamHandler(sys.stdout)
-        stdout_handler.setFormatter(formatter)
-        logger.addHandler(stdout_handler)
+            if mode in {"otlp", "otlp-only"}:
+                exporter = _StderrReportingExporter(
+                    OTLPLogExporter(endpoint=_log_endpoint(logs_endpoint, otlp_endpoint))
+                )
+                provider = LoggerProvider(resource=resolved_resource)
+                provider.add_log_record_processor(BatchLogRecordProcessor(exporter))
+                otlp_handler = _JsonOtlpLoggingHandler(
+                    level=level,
+                    logger_provider=provider,
+                )
+                otlp_handler.setFormatter(formatter)
+                handlers.append(otlp_handler)
 
-    if mode in {"otlp", "otlp-only"}:
-        exporter = _StderrReportingExporter(
-            OTLPLogExporter(endpoint=_log_endpoint(logs_endpoint, otlp_endpoint))
+            previous_provider = _logger_providers.get(id(logger))
+            logger.handlers = handlers
+            logger.setLevel(level)
+            if provider is not None:
+                _logger_providers[id(logger)] = provider
+            else:
+                _logger_providers.pop(id(logger), None)
+            committed = True
+        except Exception:
+            if provider is not None and not committed:
+                try:
+                    provider.shutdown()
+                except Exception:
+                    logging.getLogger(__name__).exception(
+                        "observability.logging.candidate_shutdown_failed"
+                    )
+            raise
+
+        if previous_provider is not None and previous_provider is not provider:
+            try:
+                previous_provider.shutdown()
+            except Exception:
+                logging.getLogger(__name__).exception(
+                    "observability.logging.reconfigure_shutdown_failed"
+                )
+    return provider
+
+
+def force_flush_logging(timeout_millis: int = 5_000) -> bool:
+    """Flush configured OTLP log providers without raising."""
+
+    deadline = time.monotonic() + max(0, timeout_millis) / 1_000
+    if not _acquire_before(_logger_providers_lock, deadline):
+        return False
+    complete = Event()
+    outcome = {"success": False}
+
+    def flush_selected_providers() -> None:
+        success = True
+        try:
+            for provider in _logger_providers.values():
+                remaining = _remaining_millis(deadline)
+                if remaining == 0:
+                    success = False
+                    continue
+                try:
+                    success = (
+                        bool(provider.force_flush(timeout_millis=remaining)) and success
+                    )
+                except Exception:
+                    logging.getLogger(__name__).exception(
+                        "observability.logging.flush_failed"
+                    )
+                    success = False
+            outcome["success"] = success
+        finally:
+            _logger_providers_lock.release()
+            complete.set()
+
+    try:
+        Thread(
+            target=flush_selected_providers,
+            name="observability-logging-flush",
+            daemon=True,
+        ).start()
+    except Exception:
+        _logger_providers_lock.release()
+        logging.getLogger(__name__).exception(
+            "observability.logging.flush_worker_failed"
         )
-        provider = LoggerProvider(
-            resource=_log_resource(service_name, service_version)
-        )
-        provider.add_log_record_processor(BatchLogRecordProcessor(exporter))
-        otlp_handler = _JsonOtlpLoggingHandler(
-            level=logger.level,
-            logger_provider=provider,
-        )
-        otlp_handler.setFormatter(formatter)
-        logger.addHandler(otlp_handler)
+        return False
+    if not complete.wait(timeout=max(0.0, deadline - time.monotonic())):
+        return False
+    return bool(outcome["success"]) and time.monotonic() < deadline
 
 
 def get_logger(name: str | None = None) -> logging.Logger:
@@ -158,9 +270,7 @@ def _log_mode(log_mode: str | None) -> str:
     if mode == "none":
         return "stdout"
     if mode not in {"stdout", "otlp", "otlp-only"}:
-        raise ValueError(
-            "log_mode must be one of: stdout, otlp, otlp-only, both"
-        )
+        raise ValueError("log_mode must be one of: stdout, otlp, otlp-only, both")
     return mode
 
 
@@ -184,14 +294,7 @@ def _log_resource(
     service_name: str | None,
     service_version: str | None,
 ) -> Resource:
-    attributes = {
-        SERVICE_NAME: service_name
-        or os.getenv("OTEL_SERVICE_NAME")
-        or "tracing-skill"
-    }
-    if service_version:
-        attributes[SERVICE_VERSION] = service_version
-    return Resource.create(attributes)
+    return create_observability_resource(service_name, service_version)
 
 
 def _json_safe(value: Any) -> Any:
@@ -200,3 +303,11 @@ def _json_safe(value: Any) -> Any:
         return value
     except TypeError:
         return repr(value)
+
+
+def _remaining_millis(deadline: float) -> int:
+    return max(0, math.ceil((deadline - time.monotonic()) * 1_000))
+
+
+def _acquire_before(lock: Lock, deadline: float) -> bool:
+    return lock.acquire(timeout=max(0.0, deadline - time.monotonic()))

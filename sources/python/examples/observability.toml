@@ -10,8 +10,3 @@ metrics_export_interval_seconds = 15.0
 # here would override it. Uncomment for a bare-host process -- a test or a
 # native runner -- where nothing injects it. It is also the library default.
 # otlp_endpoint = "http://localhost:4318"
-
-# metrics_port starts a local Prometheus debugging endpoint. Production
-# metrics are pushed over OTLP and are not scraped from this endpoint.
-# metrics_port = 9464
-# metrics_addr = "0.0.0.0"
