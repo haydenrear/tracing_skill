@@ -8,5 +8,5 @@ binary = "tracing-observability-install"
 
 [skill]
 name = "tracing-observability"
-version = "0.2.0"
-description = "Client-side Python instrumentation: structured logging, OTLP tracing, and Prometheus-to-OTLP metric push to the shared monitoring cluster."
+version = "0.3.0"
+description = "Python and JVM-native observability: structured logging, W3C-correlated OTLP signals, and bounded fail-open lifecycle behavior."
