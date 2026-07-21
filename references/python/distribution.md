@@ -18,6 +18,10 @@ This pin is the first remotely fetchable tracing-skill commit containing the
 reviewed `0.3.0` provider. Commit both `pyproject.toml` and `uv.lock`; the lock
 must retain this resolved commit, not a branch or tag that can move.
 
+Replace the placeholder with the reviewed tracing-skill commit containing the
+required package version. Commit both `pyproject.toml` and `uv.lock`; the lock
+must retain the resolved commit, not a branch or tag that can move.
+
 The skill-manager installer builds a versioned wheel once and installs that
 wheel into selected environments. Its generated `tracing-observability-install`
 helper also installs the built wheel, never the live source directory.
